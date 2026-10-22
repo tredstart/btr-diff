@@ -93,14 +93,15 @@ fn roll(h: u64, byte: u8) -> u64 {
     h.wrapping_mul(31).wrapping_add(byte as u64)
 }
 
-fn lcs(a: &[CharSeq], b: &[CharSeq]) -> Vec<Vec<u32>> {
-    let mut table = vec![vec![0u32; b.len() + 1]; a.len() + 1];
+fn lcs(a: &[CharSeq], b: &[CharSeq]) -> Vec<u32> {
+    let w = b.len() + 1;
+    let mut table = vec![0u32; (a.len() + 1) * w];
     for i in (0..a.len()).rev() {
         for j in (0..b.len()).rev() {
-            table[i][j] = if a[i].hash == b[j].hash {
-                table[i + 1][j + 1] + 1
+            table[i * w + j] = if a[i].hash == b[j].hash {
+                table[(i + 1) * w + j + 1] + 1
             } else {
-                table[i + 1][j].max(table[i][j + 1])
+                table[(i + 1) * w + j].max(table[i * w + j + 1])
             };
         }
     }
@@ -108,6 +109,7 @@ fn lcs(a: &[CharSeq], b: &[CharSeq]) -> Vec<Vec<u32>> {
 }
 
 fn diff(a: &[CharSeq], b: &[CharSeq]) -> (Vec<CharSeq>, Vec<CharSeq>) {
+    let w = b.len() + 1;
     let table = lcs(a, b);
     let (mut i, mut j) = (0, 0);
     let (mut deletions, mut insertions) = (Vec::new(), Vec::new());
@@ -115,7 +117,7 @@ fn diff(a: &[CharSeq], b: &[CharSeq]) -> (Vec<CharSeq>, Vec<CharSeq>) {
         if i < a.len() && j < b.len() && a[i].hash == b[j].hash {
             i += 1;
             j += 1;
-        } else if j >= b.len() || (i < a.len() && table[i + 1][j] >= table[i][j + 1]) {
+        } else if j >= b.len() || (i < a.len() && table[(i + 1) * w + j] >= table[i * w + j + 1]) {
             deletions.push(a[i].clone());
             i += 1;
         } else {
