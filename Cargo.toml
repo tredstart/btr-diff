@@ -2,6 +2,8 @@
 name = "btr-diff"
 version = "0.1.0"
 edition = "2024"
+license = "MPL-2.0"
+description = "A structural diff tool with word-level precision and a compact, agent-friendly output format"
 
 [dependencies]
 clap = { version = "4.6", features = ["derive"] }
