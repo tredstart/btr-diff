@@ -26,7 +26,7 @@ pub fn format_btr(ops: &[LineDiffOp], path_a: &str, path_b: &str) {
 
         match op {
             LineDiffOp::Equal(_) => {}
-            LineDiffOp::Insert { pos, content } => println!("+ {pos} | {content}"),
+            LineDiffOp::Insert { pos, content, .. } => println!("+ {pos} | {content}"),
             LineDiffOp::Modify { line, segments } => {
                 print!("~ {line} | ");
                 render_segments_btr(segments);
@@ -75,7 +75,7 @@ pub fn format_btr_context(ops: &[LineDiffOp], path_a: &str, path_b: &str) {
                 flush_range(&mut eq_start, eq_end, "=");
                 flush_range(&mut del_start, del_end, "-");
                 match op {
-                    LineDiffOp::Insert { pos, content } => println!("+ {pos} | {content}"),
+                    LineDiffOp::Insert { pos, content, .. } => println!("+ {pos} | {content}"),
                     LineDiffOp::Modify { line, segments } => {
                         print!("~ {line} | ");
                         render_segments_btr(segments);

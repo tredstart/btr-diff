@@ -12,7 +12,7 @@ pub enum Segment {
 pub enum LineDiffOp {
     Equal(u32),
     Delete(u32),
-    Insert { pos: u32, content: String },
+    Insert { pos: u32, content: String, line_b: u32 },
     Modify { line: u32, segments: Vec<Segment> },
     Move { from_start: u32, from_end: u32, to_after: u32 },
 }
@@ -120,7 +120,7 @@ pub fn prepare_lines(source: &str) -> Vec<PreparedLine> {
 
 // --- Word-level diff producing Segments (for use within a single line) ---
 
-fn word_diff(old_tokens: &[Token], new_tokens: &[Token]) -> Vec<Segment> {
+pub fn word_diff(old_tokens: &[Token], new_tokens: &[Token]) -> Vec<Segment> {
     let ops = diff(old_tokens, new_tokens);
 
     let mut segments: Vec<Segment> = Vec::new();
@@ -261,6 +261,7 @@ fn flush_line_ops(
         ops.push(LineDiffOp::Insert {
             pos: last_a,
             content,
+            line_b: (i as u32) + 1,
         });
     }
     deletes.clear();
@@ -273,5 +274,133 @@ pub fn diff_lines(prep_a: &[PreparedLine], prep_b: &[PreparedLine]) -> Vec<LineD
 
     let table = lcs_lines(&hashes_a, &hashes_b);
     let raw = trace_lines(&hashes_a, &hashes_b, &table);
-    pair_line_ops(raw, prep_a, prep_b)
+    let paired = pair_line_ops(raw, prep_a, prep_b);
+    detect_moves(paired, prep_a, prep_b)
+}
+
+// --- Move detection (exact match via HashMap) ---
+
+use std::collections::HashMap;
+
+struct Block {
+    start_idx: usize,
+    end_idx: usize,
+    content_hash: u64,
+    line_start: u32,
+}
+
+fn detect_moves(
+    ops: Vec<LineDiffOp>,
+    prep_a: &[PreparedLine],
+    prep_b: &[PreparedLine],
+) -> Vec<LineDiffOp> {
+    let mut delete_blocks: Vec<Block> = Vec::new();
+    let mut insert_blocks: Vec<Block> = Vec::new();
+
+    let mut i = 0;
+    while i < ops.len() {
+        match &ops[i] {
+            LineDiffOp::Delete(line) => {
+                let start = i;
+                let line_start = *line;
+                let mut h = prep_a[(*line - 1) as usize].hash;
+                i += 1;
+                while i < ops.len() {
+                    if let LineDiffOp::Delete(l) = &ops[i] {
+                        h = h.wrapping_mul(1000003)
+                            .wrapping_add(prep_a[(*l - 1) as usize].hash);
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+                delete_blocks.push(Block {
+                    start_idx: start,
+                    end_idx: i - 1,
+                    content_hash: h,
+                    line_start,
+                });
+            }
+            LineDiffOp::Insert { line_b, pos, .. } => {
+                let start = i;
+                let pos_val = *pos;
+                let mut h = prep_b[(*line_b - 1) as usize].hash;
+                i += 1;
+                while i < ops.len() {
+                    if let LineDiffOp::Insert { line_b: lb, .. } = &ops[i] {
+                        h = h.wrapping_mul(1000003)
+                            .wrapping_add(prep_b[(*lb - 1) as usize].hash);
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+                insert_blocks.push(Block {
+                    start_idx: start,
+                    end_idx: i - 1,
+                    content_hash: h,
+                    line_start: pos_val,
+                });
+            }
+            _ => {
+                i += 1;
+            }
+        }
+    }
+
+    if delete_blocks.is_empty() || insert_blocks.is_empty() {
+        return ops;
+    }
+
+    let mut insert_map: HashMap<(u64, usize), usize> = HashMap::new();
+    for (idx, ib) in insert_blocks.iter().enumerate() {
+        let len = ib.end_idx - ib.start_idx + 1;
+        insert_map.entry((ib.content_hash, len)).or_insert(idx);
+    }
+
+    let mut skip = vec![false; ops.len()];
+    let mut moves: Vec<(usize, LineDiffOp)> = Vec::new();
+    let mut used_inserts = vec![false; insert_blocks.len()];
+
+    for db in &delete_blocks {
+        let len = db.end_idx - db.start_idx + 1;
+        if let Some(&ii) = insert_map.get(&(db.content_hash, len)) {
+            if !used_inserts[ii] {
+                used_inserts[ii] = true;
+                let ib = &insert_blocks[ii];
+                for idx in db.start_idx..=db.end_idx {
+                    skip[idx] = true;
+                }
+                for idx in ib.start_idx..=ib.end_idx {
+                    skip[idx] = true;
+                }
+                moves.push((
+                    db.start_idx,
+                    LineDiffOp::Move {
+                        from_start: db.line_start,
+                        from_end: db.line_start + (len as u32) - 1,
+                        to_after: ib.line_start,
+                    },
+                ));
+            }
+        }
+    }
+
+    if moves.is_empty() {
+        return ops;
+    }
+
+    moves.sort_by_key(|m| m.0);
+    let mut result: Vec<LineDiffOp> = Vec::new();
+    let mi = 0;
+    for (idx, op) in ops.into_iter().enumerate() {
+        while mi < moves.len() && moves[mi].0 == idx {
+            let (_, mov) = moves.remove(mi);
+            result.push(mov);
+        }
+        if !skip[idx] {
+            result.push(op);
+        }
+    }
+    result
 }
