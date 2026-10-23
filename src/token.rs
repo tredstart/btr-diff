@@ -2,7 +2,7 @@
 pub struct Token {
     pub seq: String,
     pub hash: u64,
-    pub line: u128,
+    pub line: u32,
 }
 
 impl Token {
@@ -42,11 +42,21 @@ pub fn tokenize(source: &str) -> Vec<Token> {
     let mut collection = Vec::new();
     let mut word = Token::new();
     let mut whitespace = Token::new();
+    let mut line: u32 = 1;
     for b in source.bytes() {
         if b.is_ascii_whitespace() {
+            if whitespace.is_empty() {
+                whitespace.line = line;
+            }
             switch(&mut whitespace, &mut word, b, &mut collection);
         } else {
+            if word.is_empty() {
+                word.line = line;
+            }
             switch(&mut word, &mut whitespace, b, &mut collection);
+        }
+        if b == b'\n' {
+            line += 1;
         }
     }
     if word.is_empty() {
