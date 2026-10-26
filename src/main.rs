@@ -37,6 +37,14 @@ fn main() {
                 .long("visual")
                 .action(clap::ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("width")
+                .long("width")
+                .short('w')
+                .value_parser(clap::value_parser!(usize))
+                .default_value("80")
+                .help("Terminal width for visual format"),
+        )
         .get_matches();
 
     if let Some(apply_matches) = matches.subcommand_matches("apply") {
@@ -75,6 +83,7 @@ fn run_diff(matches: &clap::ArgMatches) {
     let f2 = matches.get_one::<String>("f2").unwrap();
     let visual = matches.get_flag("visual");
     let fmt = matches.get_one::<String>("format").unwrap().as_str();
+    let width = *matches.get_one::<usize>("width").unwrap();
 
     std::thread::scope(|s| {
         let handles = [f1, f2].map(|f| {
@@ -94,7 +103,7 @@ fn run_diff(matches: &clap::ArgMatches) {
         let ops = diff::diff_lines(prep_a, prep_b);
 
         if visual || fmt == "visual" {
-            format::format_visual(&ops, prep_a);
+            format::format_visual(&ops, prep_a, width);
         } else if fmt == "btr-context" {
             format::format_btr_context(&ops, f1, f2);
         } else {
