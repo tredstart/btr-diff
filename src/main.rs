@@ -4,6 +4,7 @@ mod patch;
 mod token;
 
 use clap::{Arg, Command};
+use std::io::Read;
 
 fn main() {
     let matches = Command::new("btr-diff")
@@ -24,8 +25,14 @@ fn main() {
                         .help("Output file (default: stdout)"),
                 ),
         )
-        .arg(Arg::new("f1").required(true))
-        .arg(Arg::new("f2").required(true))
+        .arg(Arg::new("f1").required_unless_present("stdin"))
+        .arg(Arg::new("f2").required_unless_present("stdin"))
+        .arg(
+            Arg::new("stdin")
+                .long("stdin")
+                .action(clap::ArgAction::SetTrue)
+                .help("Read two documents from stdin separated by a null byte"),
+        )
         .arg(
             Arg::new("format")
                 .long("format")
@@ -49,6 +56,8 @@ fn main() {
 
     if let Some(apply_matches) = matches.subcommand_matches("apply") {
         run_apply(apply_matches);
+    } else if matches.get_flag("stdin") {
+        run_diff_stdin(&matches);
     } else {
         run_diff(&matches);
     }
@@ -75,6 +84,32 @@ fn run_apply(matches: &clap::ArgMatches) {
         std::fs::write(out_path, &result).expect("Cannot write output file");
     } else {
         print!("{result}");
+    }
+}
+
+fn run_diff_stdin(matches: &clap::ArgMatches) {
+    let visual = matches.get_flag("visual");
+    let fmt = matches.get_one::<String>("format").unwrap().as_str();
+    let width = *matches.get_one::<usize>("width").unwrap();
+
+    let mut input = String::new();
+    std::io::stdin().read_to_string(&mut input).expect("Cannot read stdin");
+
+    let (text_a, text_b) = input.split_once('\0').unwrap_or_else(|| {
+        eprintln!("Error: --stdin expects two documents separated by a null byte (\\0)");
+        std::process::exit(1);
+    });
+
+    let prep_a = diff::prepare_lines(text_a);
+    let prep_b = diff::prepare_lines(text_b);
+    let ops = diff::diff_lines(&prep_a, &prep_b);
+
+    if visual || fmt == "visual" {
+        format::format_visual(&ops, &prep_a, width);
+    } else if fmt == "btr-context" {
+        format::format_btr_context(&ops, "a", "b");
+    } else {
+        format::format_btr(&ops, "a", "b");
     }
 }
 
